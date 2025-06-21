@@ -1,4 +1,4 @@
-import { rateLimit } from "@/app/lib/rateLimit";
+import { rateLimit } from "@/lib/rateLimit";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { handle } from "hono/vercel";
