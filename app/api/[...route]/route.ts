@@ -2,6 +2,8 @@ import { rateLimit } from "@/lib/rateLimit";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { handle } from "hono/vercel";
+import game from "./games";
+import auth from "./user/auth";
 
 export const runtime = "nodejs";
 
@@ -19,6 +21,9 @@ const apiRateLimit = rateLimit({
 });
 
 app.use("*", apiRateLimit);
+
+app.route("/", game);
+app.route("/" , auth)
 
 app.get("/hello", async (c) => {
   return c.json({
