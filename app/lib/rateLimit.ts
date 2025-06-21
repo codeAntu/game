@@ -1,5 +1,5 @@
 import { Context, Next } from "hono";
-import { connectRedis, redis } from "./redis";
+import { connectRedis, redis } from "../config/redis";
 
 interface RateLimitConfig {
   windowMs: number;
