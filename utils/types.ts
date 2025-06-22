@@ -1,4 +1,3 @@
-
 export interface AdminData {
   id: number;
   email: string;
@@ -11,6 +10,23 @@ export interface UserData {
   email: string;
   name: string;
   balance: number;
+}
+
+// API Response Types
+export interface ApiResponse<T = any> {
+  success: boolean;
+  message: string;
+  data?: T;
+  timestamp: string;
+}
+
+export interface ApiErrorResponse {
+  success: false;
+  message: string;
+  statusCode: number;
+  error?: string;
+  stack?: string;
+  timestamp: string;
 }
 
 declare module "hono" {

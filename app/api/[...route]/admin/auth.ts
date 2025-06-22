@@ -1,7 +1,15 @@
 import { db } from "@/config/db";
 import { adminTable } from "@/drizzle/schema";
-import { checkEmailInUserTable, findAdminInDatabase } from "@/helpers/admin/admin";
+import {
+  checkEmailInUserTable,
+  findAdminInDatabase,
+} from "@/helpers/admin/admin";
 import { sendVerificationEmail } from "@/mail/mailer";
+import {
+  createSuccessResponse,
+  ErrorResponses,
+  SuccessResponses,
+} from "@/utils/responses";
 import { signupValidator, verifyOtpValidator } from "@/zod/auth";
 import { zValidator } from "@hono/zod-validator";
 import bcrypt from "bcryptjs";
@@ -43,7 +51,10 @@ adminAuth.post("/signup", zValidator("json", signupValidator), async (c) => {
     if (token) {
       try {
         jwt.verify(token, process.env.JWT_SECRET!);
-        return c.json({ message: "You are already logged in." }, 401);
+        return c.json(
+          ErrorResponses.unauthorized("You are already logged in."),
+          401
+        );
       } catch (error) {
         // Token is invalid, continue with signup
       }
@@ -52,7 +63,9 @@ adminAuth.post("/signup", zValidator("json", signupValidator), async (c) => {
     const emailExistsInUserTable = await checkEmailInUserTable(email);
     if (emailExistsInUserTable) {
       return c.json(
-        { message: "Email is already used for a user account!" },
+        ErrorResponses.alreadyExists(
+          "Email is already used for a user account"
+        ),
         409
       );
     }
@@ -69,7 +82,7 @@ adminAuth.post("/signup", zValidator("json", signupValidator), async (c) => {
 
     if (existingAdmin) {
       if (existingAdmin.isVerified) {
-        return c.json({ message: "Admin account already exists!" }, 409);
+        return c.json(ErrorResponses.alreadyExists("Admin account"), 409);
       } else {
         // Admin exists but not verified, resend verification
         await db
@@ -84,10 +97,12 @@ adminAuth.post("/signup", zValidator("json", signupValidator), async (c) => {
         await sendVerificationEmail(email, verificationCode);
 
         return c.json(
-          {
-            message: "Verification email resent. Please check your inbox.",
-            isVerified: false,
-          },
+          createSuccessResponse(
+            "Verification email resent. Please check your inbox.",
+            {
+              isVerified: false,
+            }
+          ),
           200
         );
       }
@@ -106,22 +121,22 @@ adminAuth.post("/signup", zValidator("json", signupValidator), async (c) => {
     await sendVerificationEmail(email, verificationCode);
 
     return c.json(
-      {
-        message:
-          "Admin account created successfully! Please verify your email.",
-        title: "Admin created successfully",
-        isVerified: false,
-        admin: newAdmin,
-      },
+      SuccessResponses.created(
+        "Admin account created successfully! Please verify your email.",
+        {
+          isVerified: false,
+          admin: newAdmin,
+        }
+      ),
       201
     );
   } catch (error) {
     console.error("Error in admin signup process:", error);
     return c.json(
-      {
-        message: "Failed to process admin signup. Please try again.",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      ErrorResponses.serverError(
+        "Failed to process admin signup. Please try again.",
+        error
+      ),
       500
     );
   }
@@ -138,11 +153,14 @@ adminAuth.post(
       const admin = await findAdminInDatabase(email);
 
       if (!admin) {
-        return c.json({ message: "Admin account not found." }, 404);
+        return c.json(ErrorResponses.notFound("Admin account"), 404);
       }
 
       if (admin.isVerified) {
-        return c.json({ message: "Admin account already verified." }, 400);
+        return c.json(
+          ErrorResponses.badRequest("Admin account already verified."),
+          400
+        );
       }
 
       const verificationCode = Math.floor(
@@ -161,19 +179,21 @@ adminAuth.post(
       await sendVerificationEmail(email, verificationCode);
 
       return c.json(
-        {
-          message: "Verification email sent. Please check your inbox.",
-          isVerified: false,
-        },
+        createSuccessResponse(
+          "Verification email sent. Please check your inbox.",
+          {
+            isVerified: false,
+          }
+        ),
         200
       );
     } catch (error) {
       console.error("Error resending admin verification:", error);
       return c.json(
-        {
-          message: "Failed to resend verification email. Please try again.",
-          error: error instanceof Error ? error.message : String(error),
-        },
+        ErrorResponses.serverError(
+          "Failed to resend verification email. Please try again.",
+          error
+        ),
         500
       );
     }
@@ -190,7 +210,10 @@ adminAuth.post("/login", zValidator("json", signupValidator), async (c) => {
     if (token) {
       try {
         jwt.verify(token, process.env.JWT_SECRET!);
-        return c.json({ message: "You are already logged in." }, 401);
+        return c.json(
+          ErrorResponses.unauthorized("You are already logged in."),
+          401
+        );
       } catch (error) {
         // Token is invalid, continue with login
       }
@@ -199,36 +222,33 @@ adminAuth.post("/login", zValidator("json", signupValidator), async (c) => {
     const admin = await findAdminInDatabase(email);
 
     if (!admin) {
-      return c.json({ message: "Admin account not found!" }, 404);
+      return c.json(ErrorResponses.notFound("Admin account"), 404);
     }
 
     // Check if admin is verified
     if (!admin.isVerified) {
-      return c.json({ message: "Admin account not verified!" }, 401);
+      return c.json(
+        ErrorResponses.unauthorized("Admin account not verified"),
+        401
+      );
     }
 
     const isPasswordValid = await bcrypt.compare(password, admin.password);
 
     if (!isPasswordValid) {
-      return c.json({ message: "Invalid password!" }, 401);
+      return c.json(ErrorResponses.unauthorized("Invalid password"), 401);
     }
 
     const authResponse = generateAuthResponse(admin);
 
     return c.json(
-      {
-        message: "Admin login successful!",
-        ...authResponse,
-      },
+      createSuccessResponse("Admin login successful!", authResponse),
       200
     );
   } catch (error) {
     console.error("Error during admin login:", error);
     return c.json(
-      {
-        message: "Login failed. Please try again.",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      ErrorResponses.serverError("Login failed. Please try again.", error),
       500
     );
   }
@@ -248,7 +268,9 @@ adminAuth.post(
       // Check if admin exists
       if (!admin) {
         return c.json(
-          { message: "Admin account not found. Please sign up first." },
+          ErrorResponses.notFound(
+            "Admin account not found. Please sign up first."
+          ),
           404
         );
       }
@@ -256,24 +278,31 @@ adminAuth.post(
       // Check if admin is already verified
       if (admin.isVerified) {
         return c.json(
-          { message: "Admin account already verified. Please login." },
+          createSuccessResponse(
+            "Admin account already verified. Please login.",
+            {
+              isVerified: true,
+            }
+          ),
           200
         );
       }
 
       // Check if verification code is correct
       if (admin.verificationCode !== verificationCode) {
-        return c.json({ message: "Invalid verification code." }, 400);
+        return c.json(
+          ErrorResponses.badRequest("Invalid verification code."),
+          400
+        );
       }
 
       // Check if verification code is expired
       const now = new Date();
       if (now > admin.verificationCodeExpires) {
         return c.json(
-          {
-            message:
-              "Verification code has expired. Please request a new code.",
-          },
+          ErrorResponses.badRequest(
+            "Verification code has expired. Please request a new code."
+          ),
           400
         );
       }
@@ -292,20 +321,22 @@ adminAuth.post(
       const authResponse = generateAuthResponse(verifiedAdmin);
 
       return c.json(
-        {
-          message: "Admin account verified successfully. You can now login.",
-          isVerified: true,
-          ...authResponse,
-        },
+        createSuccessResponse(
+          "Admin account verified successfully. You can now login.",
+          {
+            isVerified: true,
+            ...authResponse,
+          }
+        ),
         200
       );
     } catch (error) {
       console.error("Error verifying admin OTP:", error);
       return c.json(
-        {
-          message: "Failed to verify admin account. Please try again.",
-          error: error instanceof Error ? error.message : String(error),
-        },
+        ErrorResponses.serverError(
+          "Failed to verify admin account. Please try again.",
+          error
+        ),
         500
       );
     }
