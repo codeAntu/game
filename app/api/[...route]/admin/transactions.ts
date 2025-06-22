@@ -9,6 +9,7 @@ import {
 } from "@/drizzle/schema";
 import { isAdmin } from "@/middleware/auth";
 import { getAdmin } from "@/utils/context";
+import { createErrorResponse, createSuccessResponse } from "@/utils/responses";
 import { zValidator } from "@hono/zod-validator";
 import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -57,19 +58,14 @@ transactionsRouter.get("/deposits", async (c) => {
       .where(eq(depositTable.status, "pending"))
       .orderBy(desc(depositTable.createdAt));
 
-    return c.json({
-      message: "Deposits retrieved successfully",
-      deposits,
-    });
+    return c.json(
+      createSuccessResponse("Deposits retrieved successfully", {
+        deposits,
+      })
+    );
   } catch (error) {
     console.error("Error fetching deposits:", error);
-    return c.json(
-      {
-        message: "Failed to fetch deposits",
-        error: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
+    return c.json(createErrorResponse("Failed to fetch deposits", error), 500);
   }
 });
 
@@ -91,17 +87,15 @@ transactionsRouter.get("/withdrawals", async (c) => {
       .where(eq(withdrawTable.status, "pending"))
       .orderBy(desc(withdrawTable.createdAt));
 
-    return c.json({
-      message: "Withdrawals retrieved successfully",
-      withdrawals,
-    });
+    return c.json(
+      createSuccessResponse("Withdrawals retrieved successfully", {
+        withdrawals,
+      })
+    );
   } catch (error) {
     console.error("Error fetching withdrawals:", error);
     return c.json(
-      {
-        message: "Failed to fetch withdrawals",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      createErrorResponse("Failed to fetch withdrawals", error),
       500
     );
   }
@@ -116,27 +110,25 @@ transactionsRouter.post(
       const id = Number(c.req.param("id"));
       const { status, reason } = await c.req.json();
 
-      const deposit = await db
-        .select()
-        .from(depositTable)
-        .where(eq(depositTable.id, id))
-        .limit(1);
+      const result = await db.transaction(async (tx) => {
+        const deposit = await tx
+          .select()
+          .from(depositTable)
+          .where(eq(depositTable.id, id))
+          .limit(1);
 
-      if (!deposit || deposit.length === 0) {
-        return c.json({ message: "Deposit not found" }, 404);
-      }
+        if (!deposit || deposit.length === 0) {
+          throw new Error("Deposit not found");
+        }
 
-      const userDeposit = deposit[0];
+        const userDeposit = deposit[0];
 
-      await db
-        .update(depositTable)
-        .set({ status })
-        .where(eq(depositTable.id, id))
-        .execute();
+        await tx
+          .update(depositTable)
+          .set({ status })
+          .where(eq(depositTable.id, id));
 
-      await db
-        .insert(historyTable)
-        .values({
+        await tx.insert(historyTable).values({
           userId: userDeposit.userId,
           transactionType:
             status === "rejected" ? "deposit_rejected" : "deposit",
@@ -148,40 +140,33 @@ transactionsRouter.post(
               ? `Deposit ${status} by admin - Reason: ${reason}`
               : `Deposit ${status} by admin - ID: ${id}`,
           referenceId: id,
-        })
-        .execute();
+        });
 
-      if (status === "rejected") {
-        await db
-          .insert(rejectedDepositTable)
-          .values({
+        if (status === "rejected") {
+          await tx.insert(rejectedDepositTable).values({
             userId: userDeposit.userId,
             amount: userDeposit.amount,
             upiId: userDeposit.upiId,
             status: "rejected",
             reason: reason || "No reason provided",
-          })
-          .execute();
-      }
+          });
+        }
 
-      if (status === "approved") {
-        const user = await db
-          .select({ balance: usersTable.balance })
-          .from(usersTable)
-          .where(eq(usersTable.id, userDeposit.userId))
-          .limit(1);
-
-        if (user && user.length > 0) {
-          const newBalance = user[0].balance + userDeposit.amount;
-          await db
-            .update(usersTable)
-            .set({ balance: newBalance })
+        if (status === "approved") {
+          const user = await tx
+            .select({ balance: usersTable.balance })
+            .from(usersTable)
             .where(eq(usersTable.id, userDeposit.userId))
-            .execute();
+            .limit(1);
 
-          await db
-            .insert(historyTable)
-            .values({
+          if (user && user.length > 0) {
+            const newBalance = user[0].balance + userDeposit.amount;
+            await tx
+              .update(usersTable)
+              .set({ balance: newBalance })
+              .where(eq(usersTable.id, userDeposit.userId));
+
+            await tx.insert(historyTable).values({
               userId: userDeposit.userId,
               transactionType: "balance_adjustment",
               amount: userDeposit.amount,
@@ -189,34 +174,37 @@ transactionsRouter.post(
               status: "completed",
               message: `Balance updated: +${userDeposit.amount} from deposit`,
               referenceId: id,
-            })
-            .execute();
+            });
+          }
         }
-      }
 
-      return c.json({
-        message:
+        return { userDeposit, status };
+      });
+
+      return c.json(
+        createSuccessResponse(
           status === "approved"
             ? "Deposit approved successfully"
             : status === "rejected"
             ? "Deposit rejected successfully"
             : "Deposit status updated successfully",
-        status,
-      });
+          { status }
+        )
+      );
     } catch (error) {
       console.error("Error updating deposit status:", error);
+      if (error instanceof Error && error.message === "Deposit not found") {
+        return c.json(createErrorResponse("Deposit not found"), 404);
+      }
       return c.json(
-        {
-          message: "Failed to update deposit status",
-          error: error instanceof Error ? error.message : String(error),
-        },
+        createErrorResponse("Failed to update deposit status", error),
         500
       );
     }
   }
 );
 
-// Update withdrawal status
+// Update withdrawal status - needs transaction and consistent error responses
 transactionsRouter.post(
   "/withdrawal/:id",
   zValidator("json", statusUpdateValidator),
@@ -226,27 +214,25 @@ transactionsRouter.post(
       const id = Number(c.req.param("id"));
       const { status, reason } = await c.req.json();
 
-      const withdrawal = await db
-        .select()
-        .from(withdrawTable)
-        .where(eq(withdrawTable.id, id))
-        .limit(1);
+      const result = await db.transaction(async (tx) => {
+        const withdrawal = await tx
+          .select()
+          .from(withdrawTable)
+          .where(eq(withdrawTable.id, id))
+          .limit(1);
 
-      if (!withdrawal || withdrawal.length === 0) {
-        return c.json({ message: "Withdrawal not found" }, 404);
-      }
+        if (!withdrawal || withdrawal.length === 0) {
+          throw new Error("Withdrawal not found");
+        }
 
-      const userWithdrawal = withdrawal[0];
+        const userWithdrawal = withdrawal[0];
 
-      await db
-        .update(withdrawTable)
-        .set({ status })
-        .where(eq(withdrawTable.id, id))
-        .execute();
+        await tx
+          .update(withdrawTable)
+          .set({ status })
+          .where(eq(withdrawTable.id, id));
 
-      await db
-        .insert(historyTable)
-        .values({
+        await tx.insert(historyTable).values({
           userId: userWithdrawal.userId,
           transactionType:
             status === "rejected" ? "withdrawal_rejected" : "withdrawal",
@@ -258,44 +244,37 @@ transactionsRouter.post(
               ? `Withdrawal ${status} by admin - Reason: ${reason}`
               : `Withdrawal ${status} by admin - ID: ${id}`,
           referenceId: id,
-        })
-        .execute();
+        });
 
-      if (status === "rejected") {
-        await db
-          .insert(rejectedWithdrawTable)
-          .values({
+        if (status === "rejected") {
+          await tx.insert(rejectedWithdrawTable).values({
             userId: userWithdrawal.userId,
             amount: userWithdrawal.amount,
             upiId: userWithdrawal.upiId,
             status: "rejected",
             reason: reason || "No reason provided",
-          })
-          .execute();
-      }
+          });
+        }
 
-      if (status === "approved") {
-        const user = await db
-          .select({ balance: usersTable.balance })
-          .from(usersTable)
-          .where(eq(usersTable.id, userWithdrawal.userId))
-          .limit(1);
-
-        if (user && user.length > 0) {
-          const newBalance = user[0].balance - userWithdrawal.amount;
-          if (newBalance < 0) {
-            return c.json({ message: "Insufficient user balance" }, 400);
-          }
-
-          await db
-            .update(usersTable)
-            .set({ balance: newBalance })
+        if (status === "approved") {
+          const user = await tx
+            .select({ balance: usersTable.balance })
+            .from(usersTable)
             .where(eq(usersTable.id, userWithdrawal.userId))
-            .execute();
+            .limit(1);
 
-          await db
-            .insert(historyTable)
-            .values({
+          if (user && user.length > 0) {
+            const newBalance = user[0].balance - userWithdrawal.amount;
+            if (newBalance < 0) {
+              throw new Error("Insufficient user balance");
+            }
+
+            await tx
+              .update(usersTable)
+              .set({ balance: newBalance })
+              .where(eq(usersTable.id, userWithdrawal.userId));
+
+            await tx.insert(historyTable).values({
               userId: userWithdrawal.userId,
               transactionType: "balance_adjustment",
               amount: userWithdrawal.amount,
@@ -303,34 +282,42 @@ transactionsRouter.post(
               status: "completed",
               message: `Balance updated: -${userWithdrawal.amount} from withdrawal`,
               referenceId: id,
-            })
-            .execute();
+            });
+          }
         }
-      }
 
-      return c.json({
-        message:
+        return { userWithdrawal, status };
+      });
+
+      return c.json(
+        createSuccessResponse(
           status === "approved"
             ? "Withdrawal approved successfully"
             : status === "rejected"
             ? "Withdrawal rejected successfully"
             : "Withdrawal status updated successfully",
-        status,
-      });
+          { status }
+        )
+      );
     } catch (error) {
       console.error("Error updating withdrawal status:", error);
+      if (error instanceof Error && error.message === "Withdrawal not found") {
+        return c.json(createErrorResponse("Withdrawal not found"), 404);
+      }
+      if (
+        error instanceof Error &&
+        error.message === "Insufficient user balance"
+      ) {
+        return c.json(createErrorResponse("Insufficient user balance"), 400);
+      }
       return c.json(
-        {
-          message: "Failed to update withdrawal status",
-          error: error instanceof Error ? error.message : String(error),
-        },
+        createErrorResponse("Failed to update withdrawal status", error),
         500
       );
     }
   }
 );
 
-// Get all transaction history
 transactionsRouter.get("/history", async (c) => {
   try {
     const admin = getAdmin(c);
@@ -348,20 +335,17 @@ transactionsRouter.get("/history", async (c) => {
       })
       .from(historyTable)
       .leftJoin(usersTable, eq(historyTable.userId, usersTable.id))
-      .orderBy(desc(historyTable.createdAt))
-      .execute();
+      .orderBy(desc(historyTable.createdAt));
 
-    return c.json({
-      message: "Transaction history retrieved successfully",
-      history,
-    });
+    return c.json(
+      createSuccessResponse("Transaction history retrieved successfully", {
+        history,
+      })
+    );
   } catch (error) {
     console.error("Error fetching transaction history:", error);
     return c.json(
-      {
-        message: "Failed to fetch transaction history",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      createErrorResponse("Failed to fetch transaction history", error),
       500
     );
   }
@@ -376,20 +360,17 @@ transactionsRouter.get("/history/:userId", async (c) => {
       .select()
       .from(historyTable)
       .where(eq(historyTable.userId, userId))
-      .orderBy(desc(historyTable.createdAt))
-      .execute();
+      .orderBy(desc(historyTable.createdAt));
 
-    return c.json({
-      message: "User transaction history retrieved successfully",
-      history,
-    });
+    return c.json(
+      createSuccessResponse("User transaction history retrieved successfully", {
+        history,
+      })
+    );
   } catch (error) {
     console.error("Error fetching user transaction history:", error);
     return c.json(
-      {
-        message: "Failed to fetch user transaction history",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      createErrorResponse("Failed to fetch user transaction history", error),
       500
     );
   }
@@ -414,17 +395,15 @@ transactionsRouter.get("/deposits/rejected", async (c) => {
       .leftJoin(usersTable, eq(rejectedDepositTable.userId, usersTable.id))
       .orderBy(desc(rejectedDepositTable.createdAt));
 
-    return c.json({
-      message: "Rejected deposits retrieved successfully",
-      rejectedDeposits,
-    });
+    return c.json(
+      createSuccessResponse("Rejected deposits retrieved successfully", {
+        rejectedDeposits,
+      })
+    );
   } catch (error) {
     console.error("Error fetching rejected deposits:", error);
     return c.json(
-      {
-        message: "Failed to fetch rejected deposits",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      createErrorResponse("Failed to fetch rejected deposits", error),
       500
     );
   }
@@ -449,17 +428,15 @@ transactionsRouter.get("/withdrawals/rejected", async (c) => {
       .leftJoin(usersTable, eq(rejectedWithdrawTable.userId, usersTable.id))
       .orderBy(desc(rejectedWithdrawTable.createdAt));
 
-    return c.json({
-      message: "Rejected withdrawals retrieved successfully",
-      rejectedWithdrawals,
-    });
+    return c.json(
+      createSuccessResponse("Rejected withdrawals retrieved successfully", {
+        rejectedWithdrawals,
+      })
+    );
   } catch (error) {
     console.error("Error fetching rejected withdrawals:", error);
     return c.json(
-      {
-        message: "Failed to fetch rejected withdrawals",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      createErrorResponse("Failed to fetch rejected withdrawals", error),
       500
     );
   }

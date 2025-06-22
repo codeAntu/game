@@ -3,6 +3,7 @@ import { depositTable, historyTable, withdrawTable } from "@/drizzle/schema";
 import { findUserById } from "@/helpers/user/user";
 import { isUser } from "@/middleware/auth";
 import { getUser } from "@/utils/context";
+import { createErrorResponse, createSuccessResponse } from "@/utils/responses";
 import { zValidator } from "@hono/zod-validator";
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -41,7 +42,7 @@ transaction.post(
       const userProfile = await findUserById(user.id.toString());
 
       if (!userProfile) {
-        return c.json({ message: "User not found!" }, 404);
+        return c.json(createErrorResponse("User not found"), 404);
       }
 
       await db
@@ -55,17 +56,15 @@ transaction.post(
         })
         .execute();
 
-      return c.json({
-        message: "Deposit request submitted successfully!",
-        transactionAmount: amount,
-      });
+      return c.json(
+        createSuccessResponse("Deposit request submitted successfully", {
+          transactionAmount: amount,
+        })
+      );
     } catch (error) {
       console.error("Error processing deposit:", error);
       return c.json(
-        {
-          message: "Failed to process deposit",
-          error: error instanceof Error ? error.message : String(error),
-        },
+        createErrorResponse("Failed to process deposit", error),
         500
       );
     }
@@ -83,12 +82,13 @@ transaction.post(
       const userProfile = await findUserById(user.id.toString());
 
       if (!userProfile) {
-        return c.json({ message: "User not found!" }, 404);
+        return c.json(createErrorResponse("User not found"), 404);
       }
 
       if (userProfile.balance < amount) {
-        return c.json({ message: "Insufficient balance!" }, 400);
+        return c.json(createErrorResponse("Insufficient balance"), 400);
       }
+
       await db
         .insert(withdrawTable)
         .values({
@@ -99,17 +99,15 @@ transaction.post(
         })
         .execute();
 
-      return c.json({
-        message: "Withdrawal request submitted successfully!",
-        transactionAmount: amount,
-      });
+      return c.json(
+        createSuccessResponse("Withdrawal request submitted successfully", {
+          transactionAmount: amount,
+        })
+      );
     } catch (error) {
       console.error("Error processing withdrawal:", error);
       return c.json(
-        {
-          message: "Failed to process withdrawal",
-          error: error instanceof Error ? error.message : String(error),
-        },
+        createErrorResponse("Failed to process withdrawal", error),
         500
       );
     }
@@ -121,7 +119,6 @@ transaction.get("/history", async (c) => {
   try {
     const user = getUser(c);
 
-    // Get history for the current user
     const history = await db
       .select()
       .from(historyTable)
@@ -129,17 +126,15 @@ transaction.get("/history", async (c) => {
       .orderBy(desc(historyTable.createdAt))
       .execute();
 
-    return c.json({
-      message: "Transaction history retrieved successfully",
-      history,
-    });
+    return c.json(
+      createSuccessResponse("Transaction history retrieved successfully", {
+        history,
+      })
+    );
   } catch (error) {
     console.error("Error fetching transaction history:", error);
     return c.json(
-      {
-        message: "Failed to retrieve transaction history",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      createErrorResponse("Failed to retrieve transaction history", error),
       500
     );
   }
@@ -151,7 +146,6 @@ transaction.get("/history/:type", async (c) => {
     const user = getUser(c);
     const typeParam = c.req.param("type");
 
-    // Define the valid transaction types
     const validTypes = [
       "deposit",
       "withdrawal",
@@ -163,23 +157,19 @@ transaction.get("/history/:type", async (c) => {
       "withdrawal_rejected",
     ] as const;
 
-    // Type guard to check if the provided type is valid
     const isValidType = (type: string): type is (typeof validTypes)[number] => {
       return validTypes.includes(type as any);
     };
 
-    // Check if the provided type is valid
     if (!isValidType(typeParam)) {
       return c.json(
-        {
-          message: "Invalid transaction type",
+        createErrorResponse("Invalid transaction type", {
           validTypes,
-        },
+        }),
         400
       );
     }
 
-    // Get filtered history for the current user with properly typed parameter
     const history = await db
       .select()
       .from(historyTable)
@@ -192,17 +182,18 @@ transaction.get("/history/:type", async (c) => {
       .orderBy(desc(historyTable.createdAt))
       .execute();
 
-    return c.json({
-      message: `${typeParam} history retrieved successfully`,
-      history,
-    });
+    return c.json(
+      createSuccessResponse(`${typeParam} history retrieved successfully`, {
+        history,
+      })
+    );
   } catch (error) {
     console.error("Error fetching filtered transaction history:", error);
     return c.json(
-      {
-        message: "Failed to retrieve filtered transaction history",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      createErrorResponse(
+        "Failed to retrieve filtered transaction history",
+        error
+      ),
       500
     );
   }
