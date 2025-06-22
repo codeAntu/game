@@ -5,6 +5,11 @@ import {
   findUserInDatabase,
 } from "@/helpers/user/user";
 import { sendVerificationEmail } from "@/mail/mailer";
+import {
+  createSuccessResponse,
+  ErrorResponses,
+  SuccessResponses,
+} from "@/utils/responses";
 import { signupValidator, verifyOtpValidator } from "@/zod/auth";
 import { zValidator } from "@hono/zod-validator";
 import bcrypt from "bcryptjs";
@@ -14,7 +19,6 @@ import jwt from "jsonwebtoken";
 
 const auth = new Hono().basePath("/auth");
 
-// Helper function to generate authentication token and format user data
 function generateAuthResponse(user: any) {
   const tokenData = {
     id: user.id,
@@ -43,11 +47,12 @@ auth.post("/signup", zValidator("json", signupValidator), async (c) => {
   try {
     const data = await c.req.json();
     const { email, password } = data;
-
     const emailExistsInAdminTable = await checkEmailInAdminTable(email);
     if (emailExistsInAdminTable) {
       return c.json(
-        { message: "Email is already used for an admin account!" },
+        ErrorResponses.alreadyExists(
+          "Email is already used for an admin account"
+        ),
         409
       );
     }
@@ -61,10 +66,9 @@ auth.post("/signup", zValidator("json", signupValidator), async (c) => {
 
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
-
     if (existingUser) {
       if (existingUser.isVerified) {
-        return c.json({ message: "User already exists and is verified!" }, 409);
+        return c.json(ErrorResponses.alreadyExists("User account"), 409);
       } else {
         console.log(
           "User exists but not verified, resending verification email."
@@ -81,13 +85,17 @@ auth.post("/signup", zValidator("json", signupValidator), async (c) => {
 
         await sendVerificationEmail(email, verificationCode);
 
-        return c.json({
-          message: "Verification email resent. Please check your inbox.",
-          isVerified: false,
-        });
+        return c.json(
+          createSuccessResponse(
+            "Verification email resent. Please check your inbox.",
+            {
+              isVerified: false,
+            }
+          ),
+          200
+        );
       }
     }
-
     const userData = {
       email,
       name: email.split("@")[0],
@@ -98,27 +106,27 @@ auth.post("/signup", zValidator("json", signupValidator), async (c) => {
       balance: 0,
     };
 
-    const newUserId = await db.insert(usersTable).values(userData).returning();
-    const newUser = { userData };
+    const newUser = await db.insert(usersTable).values(userData);
 
     await sendVerificationEmail(email, verificationCode);
 
     return c.json(
-      {
-        message: "Signup successful! Please verify your email.",
-        title: "User created successfully",
-        isVerified: false,
-        user: newUser,
-      },
+      SuccessResponses.created(
+        "User account created successfully! Please verify your email.",
+        {
+          isVerified: false,
+          user: newUser,
+        }
+      ),
       201
     );
   } catch (error) {
     console.error("Error in signup process:", error);
     return c.json(
-      {
-        message: "Failed to process signup. Please try again.",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      ErrorResponses.serverError(
+        "Failed to process signup. Please try again.",
+        error
+      ),
       500
     );
   }
@@ -131,15 +139,17 @@ auth.post(
   async (c) => {
     try {
       const { email } = await c.req.json();
-
       const user = await findUserInDatabase(email);
 
       if (!user) {
-        return c.json({ message: "User not found." }, 404);
+        return c.json(ErrorResponses.notFound("User account"), 404);
       }
 
       if (user.isVerified) {
-        return c.json({ message: "Account already verified." }, 400);
+        return c.json(
+          ErrorResponses.badRequest("Account already verified."),
+          400
+        );
       }
 
       const verificationCode = Math.floor(
@@ -154,20 +164,24 @@ auth.post(
           verificationCodeExpires,
         })
         .where(eq(usersTable.id, user.id));
-
       await sendVerificationEmail(email, verificationCode);
 
-      return c.json({
-        message: "Verification email sent. Please check your inbox.",
-        isVerified: false,
-      });
+      return c.json(
+        createSuccessResponse(
+          "Verification email sent. Please check your inbox.",
+          {
+            isVerified: false,
+          }
+        ),
+        200
+      );
     } catch (error) {
       console.error("Error resending verification:", error);
       return c.json(
-        {
-          message: "Failed to resend verification email. Please try again.",
-          error: error instanceof Error ? error.message : String(error),
-        },
+        ErrorResponses.serverError(
+          "Failed to resend verification email. Please try again.",
+          error
+        ),
         500
       );
     }
@@ -177,67 +191,67 @@ auth.post(
 auth.post("/verify-otp", zValidator("json", verifyOtpValidator), async (c) => {
   try {
     const { email, verificationCode } = await c.req.json();
-
-    // Find the user
     const user = await findUserInDatabase(email);
 
-    // Check if user exists
     if (!user) {
-      return c.json({ message: "User not found. Please sign up first." }, 404);
+      return c.json(
+        ErrorResponses.notFound(
+          "User account not found. Please sign up first."
+        ),
+        404
+      );
     }
 
-    // Check if user is already verified
     if (user.isVerified) {
       return c.json(
-        { message: "Account already verified. Please login." },
+        createSuccessResponse("Account already verified. Please login.", {
+          isVerified: true,
+        }),
         200
       );
     }
 
-    // Check if verification code is correct
     if (user.verificationCode !== verificationCode) {
-      return c.json({ message: "Invalid verification code." }, 400);
-    }
-
-    // Check if verification code is expired
-    const now = new Date();
-    if (now > user.verificationCodeExpires) {
       return c.json(
-        {
-          message: "Verification code has expired. Please request a new code.",
-        },
+        ErrorResponses.badRequest("Invalid verification code."),
         400
       );
     }
 
-    // Verify the user
+    const now = new Date();
+    if (now > user.verificationCodeExpires) {
+      return c.json(
+        ErrorResponses.badRequest(
+          "Verification code has expired. Please request a new code."
+        ),
+        400
+      );
+    }
+
     await db
       .update(usersTable)
       .set({
         isVerified: true,
-        verificationCode: "", // Clear verification code after successful verification
+        verificationCode: "",
       })
       .where(eq(usersTable.id, user.id));
-
-    // Update user object to reflect verification
     const verifiedUser = { ...user, isVerified: true };
     const authResponse = generateAuthResponse(verifiedUser);
 
     return c.json(
-      {
-        message: "Account verified successfully.",
+      createSuccessResponse("Account verified successfully.", {
         isVerified: true,
         ...authResponse,
-      },
+      }),
       200
     );
   } catch (error) {
     console.error("Error verifying OTP:", error);
     return c.json(
-      {
-        message: "Failed to verify account. Please try again.",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      ErrorResponses.serverError(
+        "Failed to verify account. Please try again.",
+        error
+      ),
       500
     );
   }
@@ -247,36 +261,35 @@ auth.post("/login", zValidator("json", signupValidator), async (c) => {
   try {
     const data = await c.req.json();
     const { email, password } = data;
-
     const user = await findUserInDatabase(email);
 
     if (!user) {
-      return c.json({ message: "User not found!" }, 404);
+      return c.json(ErrorResponses.notFound("User account"), 404);
     }
 
     if (!user.isVerified) {
-      return c.json({ message: "User not verified!" }, 401);
+      return c.json(
+        ErrorResponses.unauthorized("User account not verified"),
+        401
+      );
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      return c.json({ message: "Invalid password!" }, 401);
+      return c.json(ErrorResponses.unauthorized("Invalid password"), 401);
     }
 
     const authResponse = generateAuthResponse(user);
 
-    return c.json({
-      message: "Login successful!",
-      ...authResponse,
-    });
+    return c.json(
+      createSuccessResponse("Login successful!", authResponse),
+      200
+    );
   } catch (error) {
     console.error("Error during login:", error);
     return c.json(
-      {
-        message: "Login failed. Please try again.",
-        error: error instanceof Error ? error.message : String(error),
-      },
+      ErrorResponses.serverError("Login failed. Please try again.", error),
       500
     );
   }

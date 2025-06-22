@@ -47,7 +47,6 @@ adminAuth.post("/signup", zValidator("json", signupValidator), async (c) => {
     const authHeader = c.req.header("Authorization");
     const token = authHeader?.split(" ")[1];
 
-    // Ensure consistent behavior with user auth - don't require token for signup
     if (token) {
       try {
         jwt.verify(token, process.env.JWT_SECRET!);
@@ -56,7 +55,7 @@ adminAuth.post("/signup", zValidator("json", signupValidator), async (c) => {
           401
         );
       } catch (error) {
-        // Token is invalid, continue with signup
+        // Token verification failed, proceed with signup
       }
     }
 
@@ -214,9 +213,7 @@ adminAuth.post("/login", zValidator("json", signupValidator), async (c) => {
           ErrorResponses.unauthorized("You are already logged in."),
           401
         );
-      } catch (error) {
-        // Token is invalid, continue with login
-      }
+      } catch (error) {}
     }
 
     const admin = await findAdminInDatabase(email);
@@ -225,7 +222,6 @@ adminAuth.post("/login", zValidator("json", signupValidator), async (c) => {
       return c.json(ErrorResponses.notFound("Admin account"), 404);
     }
 
-    // Check if admin is verified
     if (!admin.isVerified) {
       return c.json(
         ErrorResponses.unauthorized("Admin account not verified"),
@@ -262,10 +258,8 @@ adminAuth.post(
     try {
       const { email, verificationCode } = await c.req.json();
 
-      // Find the admin
       const admin = await findAdminInDatabase(email);
 
-      // Check if admin exists
       if (!admin) {
         return c.json(
           ErrorResponses.notFound(
@@ -275,7 +269,6 @@ adminAuth.post(
         );
       }
 
-      // Check if admin is already verified
       if (admin.isVerified) {
         return c.json(
           createSuccessResponse(
@@ -288,7 +281,6 @@ adminAuth.post(
         );
       }
 
-      // Check if verification code is correct
       if (admin.verificationCode !== verificationCode) {
         return c.json(
           ErrorResponses.badRequest("Invalid verification code."),
@@ -296,7 +288,6 @@ adminAuth.post(
         );
       }
 
-      // Check if verification code is expired
       const now = new Date();
       if (now > admin.verificationCodeExpires) {
         return c.json(
@@ -307,16 +298,14 @@ adminAuth.post(
         );
       }
 
-      // Verify the admin
       await db
         .update(adminTable)
         .set({
           isVerified: true,
-          verificationCode: "", // Clear verification code after successful verification
+          verificationCode: "",
         })
         .where(eq(adminTable.id, admin.id));
 
-      // Get updated admin info and generate auth response
       const verifiedAdmin = { ...admin, isVerified: true };
       const authResponse = generateAuthResponse(verifiedAdmin);
 
