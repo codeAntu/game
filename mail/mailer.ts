@@ -73,9 +73,11 @@ export async function sendVerificationEmail(
   const name = to.split("@")[0]; // Extract name from email address
   const html = generateVerificationEmailHtml(name, verificationCode);
 
-  return await sendEmail({
-    to,
-    subject: "Verify Your BattleZone Account",
-    html,
-  });
+  console.log(`OTP: ${verificationCode}`);
+
+  // return await sendEmail({
+  //   to,
+  //   subject: "Verify Your BattleZone Account",
+  //   html,
+  // });
 }

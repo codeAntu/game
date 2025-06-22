@@ -2,10 +2,9 @@ import { rateLimit } from "@/lib/rateLimit";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { handle } from "hono/vercel";
-import game from "./games";
-import auth from "./user/auth";
-import user from "./user";
 import admin from "./admin";
+import game from "./games";
+import user from "./user";
 
 export const runtime = "nodejs";
 
