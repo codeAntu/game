@@ -5,6 +5,7 @@ import { handle } from "hono/vercel";
 import game from "./games";
 import auth from "./user/auth";
 import user from "./user";
+import admin from "./admin";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,8 @@ const apiRateLimit = rateLimit({
 app.use("*", apiRateLimit);
 
 app.route("/", game);
-app.route("/" , user)
+app.route("/", user);
+app.route("/", admin);
 
 app.get("/hello", async (c) => {
   return c.json({
