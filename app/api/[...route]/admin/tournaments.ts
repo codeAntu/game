@@ -13,6 +13,7 @@ import {
 } from "@/helpers/admin/tournaments";
 import { isAdmin } from "@/middleware/auth";
 import { getAdmin } from "@/utils/context";
+import { createErrorResponse, createSuccessResponse } from "@/utils/responses";
 import {
   killMoneyValidation,
   tournamentEditValidation,
@@ -30,15 +31,17 @@ tournamentApi.get("/", async (c) => {
   try {
     const admin = getAdmin(c);
     const tournaments = await getMyTournaments(admin.id);
-    return c.json({
-      message: "Tournaments retrieved successfully",
-      tournaments,
-    });
+    return c.json(
+      createSuccessResponse("Tournaments retrieved successfully", {
+        tournaments,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error retrieving tournaments:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to retrieve tournaments";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve tournaments", error),
+      500
+    );
   }
 });
 
@@ -46,15 +49,17 @@ tournamentApi.get("/history", async (c) => {
   try {
     const admin = getAdmin(c);
     const tournaments = await getMyTournamentHistory(admin.id);
-    return c.json({
-      message: "Tournaments retrieved successfully",
-      tournaments,
-    });
+    return c.json(
+      createSuccessResponse("Tournament history retrieved successfully", {
+        tournaments,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error retrieving tournaments:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to retrieve tournaments";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve tournament history", error),
+      500
+    );
   }
 });
 
@@ -62,17 +67,17 @@ tournamentApi.get("/current", async (c) => {
   try {
     const admin = getAdmin(c);
     const tournaments = await getMyCurrentTournaments(admin.id);
-    return c.json({
-      message: "Current tournaments retrieved successfully",
-      tournaments,
-    });
+    return c.json(
+      createSuccessResponse("Current tournaments retrieved successfully", {
+        tournaments,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error retrieving current tournaments:", error);
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to retrieve current tournaments";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve current tournaments", error),
+      500
+    );
   }
 });
 
@@ -83,19 +88,23 @@ tournamentApi.get("/:id", async (c) => {
     console.log(`Admin ${admin.id} accessing tournament ${id}`);
 
     const tournament = await getMyTournamentById(admin.id, id);
-    return c.json({
-      message: "Tournament retrieved successfully",
-      tournament,
-    });
+    return c.json(
+      createSuccessResponse("Tournament retrieved successfully", {
+        tournament,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error retrieving tournament:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Failed to retrieve tournament";
 
     if (errorMessage.includes("not found")) {
-      return c.json({ error: errorMessage }, 404);
+      return c.json(createErrorResponse("Tournament not found"), 404);
     }
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve tournament", error),
+      500
+    );
   }
 });
 
@@ -124,13 +133,12 @@ tournamentApi.post("/create", async (c) => {
     if (!data.success) {
       console.error("Validation error:", data.error.format());
       return c.json(
-        {
-          error: "Invalid tournament data",
+        createErrorResponse("Invalid tournament data", {
           details: data.error.errors.map((err) => ({
             path: err.path.join("."),
             message: err.message,
           })),
-        },
+        }),
         400
       );
     }
@@ -141,15 +149,17 @@ tournamentApi.post("/create", async (c) => {
     const tournamentId = await createTournament(admin.id, parsedData);
     const tournament = await getMyTournamentById(admin.id, tournamentId);
 
-    return c.json({
-      message: "Tournament created successfully",
-      tournament,
-    });
+    return c.json(
+      createSuccessResponse("Tournament created successfully", {
+        tournament,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error creating tournament:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to create tournament";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to create tournament", error),
+      500
+    );
   }
 });
 
@@ -162,20 +172,23 @@ tournamentApi.post(
       const id = Number(c.req.param("id"));
       const data = await c.req.json();
       const result = await updateTournamentRoomId(admin.id, id, data);
-      return c.json({
-        message: "Tournament updated successfully",
-        id,
-        result,
-      });
+      return c.json(
+        createSuccessResponse("Tournament updated successfully", {
+          tournament: result,
+        })
+      );
     } catch (error: unknown) {
       console.error("Error updating tournament:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Failed to update tournament";
 
       if (errorMessage.includes("not found")) {
-        return c.json({ error: errorMessage }, 404);
+        return c.json(createErrorResponse("Tournament not found"), 404);
       }
-      return c.json({ error: errorMessage }, 500);
+      return c.json(
+        createErrorResponse("Failed to update tournament", error),
+        500
+      );
     }
   }
 );
@@ -188,31 +201,34 @@ tournamentApi.post(
       const admin = getAdmin(c);
       const id = Number(c.req.param("id"));
       const data = await c.req.json();
-
       const updatedTournament = await editTournament(admin.id, id, data);
 
-      return c.json({
-        message: "Tournament edited successfully",
-        tournament: updatedTournament,
-      });
+      return c.json(
+        createSuccessResponse("Tournament edited successfully", {
+          tournament: updatedTournament,
+        })
+      );
     } catch (error: unknown) {
       console.error("Error editing tournament:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Failed to edit tournament";
 
       if (errorMessage.includes("max participants")) {
-        return c.json({ error: errorMessage }, 400);
+        return c.json(createErrorResponse(errorMessage), 400);
       }
 
       if (errorMessage.includes("already ended")) {
-        return c.json({ error: errorMessage }, 400);
+        return c.json(createErrorResponse(errorMessage), 400);
       }
 
       if (errorMessage.includes("not found")) {
-        return c.json({ error: errorMessage }, 404);
+        return c.json(createErrorResponse("Tournament not found"), 404);
       }
 
-      return c.json({ error: errorMessage }, 500);
+      return c.json(
+        createErrorResponse("Failed to edit tournament", error),
+        500
+      );
     }
   }
 );
@@ -223,15 +239,14 @@ tournamentApi.post("/end/:id", async (c) => {
     const id = Number(c.req.param("id"));
     const { winnerId } = await c.req.json();
     const tournament = await endTournament(admin.id, id, winnerId);
-    return c.json({
-      message: "End Tournament",
-      tournament,
-    });
+    return c.json(
+      createSuccessResponse("Tournament ended successfully", {
+        tournament,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error ending tournament:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to end tournament";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(createErrorResponse("Failed to end tournament", error), 500);
   }
 });
 
@@ -243,22 +258,25 @@ tournamentApi.post(
       const admin = getAdmin(c);
       const id = Number(c.req.param("id"));
       const { userId, kills } = await c.req.json();
-
       const result = await awardKillMoney(admin.id, id, userId, kills);
 
-      return c.json({
-        message: "Kill money awarded successfully",
-        result,
-      });
+      return c.json(
+        createSuccessResponse("Kill money awarded successfully", {
+          result,
+        })
+      );
     } catch (error: unknown) {
       console.error("Error awarding kill money:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Failed to award kill money";
 
       if (errorMessage.includes("not found")) {
-        return c.json({ error: errorMessage }, 404);
+        return c.json(createErrorResponse("Tournament not found"), 404);
       }
-      return c.json({ error: errorMessage }, 500);
+      return c.json(
+        createErrorResponse("Failed to award kill money", error),
+        500
+      );
     }
   }
 );
@@ -268,23 +286,22 @@ tournamentApi.get("/participants/:id", async (c) => {
     const admin = getAdmin(c);
     const id = Number(c.req.param("id"));
     console.log(`Admin ${admin.id} accessing tournament ${id}`);
-
     const tournamentParticipants = await getTournamentParticipants(
       admin.id,
       id
     );
 
-    return c.json({
-      message: "Get Tournament Participants",
-      participants: tournamentParticipants,
-    });
+    return c.json(
+      createSuccessResponse("Tournament participants retrieved successfully", {
+        participants: tournamentParticipants,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error retrieving tournament participants:", error);
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to retrieve tournament participants";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve tournament participants", error),
+      500
+    );
   }
 });
 
@@ -292,27 +309,30 @@ tournamentApi.post("/delete/:id", async (c) => {
   try {
     const admin = getAdmin(c);
     const id = Number(c.req.param("id"));
-
     const result = await deleteTournament(admin.id, id);
 
-    return c.json({
-      message: "Tournament deleted successfully",
-      result,
-    });
+    return c.json(
+      createSuccessResponse("Tournament deleted successfully", {
+        result,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error deleting tournament:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Failed to delete tournament";
 
     if (errorMessage.includes("participants")) {
-      return c.json({ error: errorMessage }, 400);
+      return c.json(createErrorResponse(errorMessage), 400);
     }
 
     if (errorMessage.includes("not found")) {
-      return c.json({ error: errorMessage }, 404);
+      return c.json(createErrorResponse("Tournament not found"), 404);
     }
 
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to delete tournament", error),
+      500
+    );
   }
 });
 

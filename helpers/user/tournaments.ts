@@ -1,14 +1,18 @@
-import { and, eq, gt, isNull, desc } from "drizzle-orm";
+import { db } from "@/config/db";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import {
+  historyTable,
   tournamentParticipantsTable,
   tournamentsTable,
   usersTable,
   winningsTable,
-  historyTable,
 } from "../../drizzle/schema";
-import { db } from "@/config/db";
 
-const sanitizeTournamentData = (tournamentData: any, hasParticipated: boolean = false, isWinner: boolean = false) => {
+const sanitizeTournamentData = (
+  tournamentData: any,
+  hasParticipated: boolean = false,
+  isWinner: boolean = false
+) => {
   if (!tournamentData) return tournamentData;
 
   if (hasParticipated || isWinner) return tournamentData;
@@ -18,7 +22,10 @@ const sanitizeTournamentData = (tournamentData: any, hasParticipated: boolean = 
     return { ...tournamentData, tournament: rest };
   }
 
-  if (tournamentData.roomId !== undefined || tournamentData.roomPassword !== undefined) {
+  if (
+    tournamentData.roomId !== undefined ||
+    tournamentData.roomPassword !== undefined
+  ) {
     const { roomId, roomPassword, ...sanitizedData } = tournamentData;
     return sanitizedData;
   }
@@ -42,14 +49,13 @@ export async function getAllUserTournaments(userId: number) {
           gt(tournamentsTable.scheduledAt, new Date())
         )
       )
-      .orderBy(desc(tournamentsTable.scheduledAt))
-      .execute();
+      .orderBy(desc(tournamentsTable.scheduledAt));
 
-    return tournaments.map(tournament => {
+    return tournaments.map((tournament) => {
       const { tournaments, ...rest } = tournament;
       return {
         ...rest,
-        tournaments: sanitizeTournamentData(tournaments, true)
+        tournaments: sanitizeTournamentData(tournaments, true),
       };
     });
   } catch (error) {
@@ -63,12 +69,10 @@ export async function getTournamentById(userId: number, id: number) {
     if (isNaN(id) || id <= 0) {
       throw new Error("Invalid tournament ID provided");
     }
-
     const tournament = await db
       .select()
       .from(tournamentsTable)
-      .where(eq(tournamentsTable.id, id))
-      .execute();
+      .where(eq(tournamentsTable.id, id));
 
     if (!tournament || tournament.length === 0) {
       throw new Error(`Tournament with ID ${id} does not exist`);
@@ -84,8 +88,7 @@ export async function getTournamentById(userId: number, id: number) {
           eq(tournamentParticipantsTable.tournamentId, id),
           eq(tournamentParticipantsTable.userId, userId)
         )
-      )
-      .execute();
+      );
 
     const hasParticipated = participation && participation.length > 0;
 
@@ -97,8 +100,7 @@ export async function getTournamentById(userId: number, id: number) {
           eq(winningsTable.tournamentId, id),
           eq(winningsTable.userId, userId)
         )
-      )
-      .execute();
+      );
 
     const isWinner = winnerCheck && winnerCheck.length > 0;
 
@@ -106,11 +108,14 @@ export async function getTournamentById(userId: number, id: number) {
       const winners = await db
         .select()
         .from(winningsTable)
-        .where(eq(winningsTable.tournamentId, id))
-        .execute();
+        .where(eq(winningsTable.tournamentId, id));
 
       return {
-        tournament: sanitizeTournamentData(tournamentData, hasParticipated, isWinner),
+        tournament: sanitizeTournamentData(
+          tournamentData,
+          hasParticipated,
+          isWinner
+        ),
         winners,
         hasParticipated,
         isWinner,
@@ -118,7 +123,11 @@ export async function getTournamentById(userId: number, id: number) {
     }
 
     return {
-      tournament: sanitizeTournamentData(tournamentData, hasParticipated, isWinner),
+      tournament: sanitizeTournamentData(
+        tournamentData,
+        hasParticipated,
+        isWinner
+      ),
       hasParticipated,
       isWinner,
       message: "Tournament is still ongoing",
@@ -129,10 +138,7 @@ export async function getTournamentById(userId: number, id: number) {
   }
 }
 
-export async function getUserTournamentsByName(
-  userId: number,
-  game: string
-) {
+export async function getUserTournamentsByName(userId: number, game: string) {
   try {
     const tournaments = await db
       .select({
@@ -154,11 +160,10 @@ export async function getUserTournamentsByName(
           gt(tournamentsTable.scheduledAt, new Date())
         )
       )
-      .orderBy(desc(tournamentsTable.scheduledAt))
-      .execute();
+      .orderBy(desc(tournamentsTable.scheduledAt));
 
-    return tournaments.map(item => ({
-      tournament: sanitizeTournamentData(item.tournament, false)
+    return tournaments.map((item) => ({
+      tournament: sanitizeTournamentData(item.tournament, false),
     }));
   } catch (error) {
     console.error("Error fetching tournaments by game name:", error);
@@ -174,85 +179,78 @@ export async function participateInTournament(
   playerLevel: number
 ) {
   try {
-    const tournament = await db
-      .select()
-      .from(tournamentsTable)
-      .where(
-        and(
-          eq(tournamentsTable.id, tournamentId),
-          eq(tournamentsTable.isEnded, false),
-          gt(tournamentsTable.scheduledAt, new Date())
-        )
-      )
-      .execute();
+    const result = await db.transaction(async (tx) => {
+      const tournament = await tx
+        .select()
+        .from(tournamentsTable)
+        .where(
+          and(
+            eq(tournamentsTable.id, tournamentId),
+            eq(tournamentsTable.isEnded, false),
+            gt(tournamentsTable.scheduledAt, new Date())
+          )
+        );
 
-    if (!tournament || tournament.length === 0) {
-      throw new Error(`Tournament does not exist`);
-    }
+      if (!tournament || tournament.length === 0) {
+        throw new Error(`Tournament does not exist`);
+      }
 
-    const existingParticipant = await db
-      .select()
-      .from(tournamentParticipantsTable)
-      .where(
-        and(
-          eq(tournamentParticipantsTable.tournamentId, tournamentId),
-          eq(tournamentParticipantsTable.userId, userId)
-        )
-      )
-      .execute();
+      const existingParticipant = await tx
+        .select()
+        .from(tournamentParticipantsTable)
+        .where(
+          and(
+            eq(tournamentParticipantsTable.tournamentId, tournamentId),
+            eq(tournamentParticipantsTable.userId, userId)
+          )
+        );
 
-    if (existingParticipant && existingParticipant.length > 0) {
-      throw new Error(`Already participated in tournament`);
-    }
+      if (existingParticipant && existingParticipant.length > 0) {
+        throw new Error(`Already participated in tournament`);
+      }
 
-    const maxParticipants = tournament[0].maxParticipants;
+      const maxParticipants = tournament[0].maxParticipants;
 
-    const currentParticipants = await db
-      .select()
-      .from(tournamentParticipantsTable)
-      .where(eq(tournamentParticipantsTable.tournamentId, tournamentId))
-      .execute();
+      const currentParticipants = await tx
+        .select()
+        .from(tournamentParticipantsTable)
+        .where(eq(tournamentParticipantsTable.tournamentId, tournamentId));
 
-    const currentParticipantsCount = currentParticipants.length;
-    if (currentParticipantsCount >= maxParticipants) {
-      throw new Error(`Tournament has reached its maximum participants`);
-    }
+      const currentParticipantsCount = currentParticipants.length;
+      if (currentParticipantsCount >= maxParticipants) {
+        throw new Error(`Tournament has reached its maximum participants`);
+      }
 
-    const user = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, userId))
-      .execute();
+      const user = await tx
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, userId));
 
-    if (!user || user.length === 0) {
-      throw new Error(`User does not exist`);
-    }
+      if (!user || user.length === 0) {
+        throw new Error(`User does not exist`);
+      }
 
-    const userBalance = user[0].balance;
+      const userBalance = user[0].balance;
+      const tournamentEntryFee = tournament[0].entryFee;
 
-    const tournamentEntryFee = tournament[0].entryFee;
-    if (userBalance < tournamentEntryFee) {
-      throw new Error(
-        "Don't have enough balance to participate in this tournament"
-      );
-    }
+      if (userBalance < tournamentEntryFee) {
+        throw new Error(
+          "Don't have enough balance to participate in this tournament"
+        );
+      }
 
-    if (playerLevel < 30) {
-      throw new Error("Player level must be at least 30");
-    }
+      if (playerLevel < 30) {
+        throw new Error("Player level must be at least 30");
+      }
 
-    await db
-      .update(usersTable)
-      .set({
-        balance: userBalance - tournamentEntryFee,
-      })
-      .where(and(eq(usersTable.id, userId)))
-      .execute();
-      
-    // Record the tournament entry fee deduction in history
-    await db
-      .insert(historyTable)
-      .values({
+      await tx
+        .update(usersTable)
+        .set({
+          balance: userBalance - tournamentEntryFee,
+        })
+        .where(eq(usersTable.id, userId));
+
+      await tx.insert(historyTable).values({
         userId,
         transactionType: "tournament_entry",
         amount: tournamentEntryFee,
@@ -260,38 +258,37 @@ export async function participateInTournament(
         status: "completed",
         message: `Entry fee paid for tournament: ${tournament[0].name}`,
         referenceId: tournamentId,
-      })
-      .execute();
+      });
 
-    const participantInsert = await db
-      .insert(tournamentParticipantsTable)
-      .values({
-        tournamentId,
-        userId,
-        playerUsername,
-        playerUserId,
-        playerLevel,
-      })
-      .execute();
+      const participantInsert = await tx
+        .insert(tournamentParticipantsTable)
+        .values({
+          tournamentId,
+          userId,
+          playerUsername,
+          playerUserId,
+          playerLevel,
+        });
 
-    await db
-      .update(tournamentsTable)
-      .set({
-        currentParticipants: currentParticipantsCount + 1,
-      })
-      .where(eq(tournamentsTable.id, tournamentId))
-      .execute();
+      await tx
+        .update(tournamentsTable)
+        .set({
+          currentParticipants: currentParticipantsCount + 1,
+        })
+        .where(eq(tournamentsTable.id, tournamentId));
 
-    const updatedTournament = await db
-      .select()
-      .from(tournamentsTable)
-      .where(eq(tournamentsTable.id, tournamentId))
-      .execute();
+      const updatedTournament = await tx
+        .select()
+        .from(tournamentsTable)
+        .where(eq(tournamentsTable.id, tournamentId));
 
-    return {
-      participantInsert,
-      tournament: updatedTournament[0]
-    };
+      return {
+        participantInsert,
+        tournament: updatedTournament[0],
+      };
+    });
+
+    return result;
   } catch (error) {
     console.error("Error participating in tournament:", error);
     throw error;
@@ -311,8 +308,7 @@ export async function isUserParticipatedInTournament(
           eq(tournamentParticipantsTable.tournamentId, tournamentId),
           eq(tournamentParticipantsTable.userId, userId)
         )
-      )
-      .execute();
+      );
 
     return participation && participation.length > 0;
   } catch (error) {
@@ -353,8 +349,7 @@ export async function getParticipatedTournaments(userId: number) {
           eq(tournamentsTable.isEnded, false)
         )
       )
-      .orderBy(desc(tournamentsTable.scheduledAt))
-      .execute();
+      .orderBy(desc(tournamentsTable.scheduledAt));
 
     return tournaments;
   } catch (error) {
@@ -381,12 +376,11 @@ export async function getUserWinnings(userId: number) {
           eq(tournamentsTable.isEnded, true)
         )
       )
-      .orderBy(desc(winningsTable.createdAt)) // Order by winningsTable.createdAt
-      .execute();
+      .orderBy(desc(winningsTable.createdAt)); 
 
-    return winnings.map(item => ({
+    return winnings.map((item) => ({
       tournament: sanitizeTournamentData(item.tournament, true, true),
-      winnings: item.winnings
+      winnings: item.winnings,
     }));
   } catch (error) {
     console.error("Error fetching user winnings:", error);

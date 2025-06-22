@@ -9,6 +9,7 @@ import {
 } from "@/helpers/user/tournaments";
 import { isUser } from "@/middleware/auth";
 import { getUser } from "@/utils/context";
+import { createErrorResponse, createSuccessResponse } from "@/utils/responses";
 import { participationValidator } from "@/zod/participation";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
@@ -22,19 +23,21 @@ tournamentApi.get("/", async (c) => {
     const user = getUser(c);
 
     const tournaments = await getAllUserTournaments(user.id);
-    if (!tournaments) {
-      return c.json({ message: "No tournaments found" }, 404);
+    if (!tournaments || tournaments.length === 0) {
+      return c.json(createErrorResponse("No tournaments found"), 404);
     }
 
-    return c.json({
-      message: "Tournaments retrieved successfully",
-      data: tournaments,
-    });
+    return c.json(
+      createSuccessResponse("Tournaments retrieved successfully", {
+        tournaments,
+      })
+    );
   } catch (error: unknown) {
     console.error("Error retrieving tournaments:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to retrieve tournaments";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve tournaments", error),
+      500
+    );
   }
 });
 
@@ -44,20 +47,23 @@ tournamentApi.get("/participated", async (c) => {
 
     const tournaments = await getParticipatedTournaments(user.id);
     if (!tournaments || tournaments.length === 0) {
-      return c.json({ message: "No participated tournaments found" }, 404);
+      return c.json(
+        createErrorResponse("No participated tournaments found"),
+        404
+      );
     }
 
-    return c.json({
-      message: "Participated tournaments retrieved successfully",
-      tournaments,
-    });
+    return c.json(
+      createSuccessResponse("Participated tournaments retrieved successfully", {
+        tournaments,
+      })
+    );
   } catch (error) {
     console.error("Error retrieving participated tournaments:", error);
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to retrieve participated tournaments";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve participated tournaments", error),
+      500
+    );
   }
 });
 
@@ -67,18 +73,20 @@ tournamentApi.get("/winnings", async (c) => {
 
     const winnings = await getUserWinnings(user.id);
     if (!winnings || winnings.length === 0) {
-      return c.json({ message: "No tournament winnings found" }, 404);
+      return c.json(createErrorResponse("No tournament winnings found"), 404);
     }
 
-    return c.json({
-      message: "Tournament winnings retrieved successfully",
-      data: winnings,
-    });
+    return c.json(
+      createSuccessResponse("Tournament winnings retrieved successfully", {
+        winnings,
+      })
+    );
   } catch (error) {
     console.error("Error retrieving winnings:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to retrieve winnings";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve winnings", error),
+      500
+    );
   }
 });
 
@@ -87,7 +95,7 @@ tournamentApi.get("/isParticipated/:tournamentId", async (c) => {
     const user = getUser(c);
     const tournamentId = c.req.param("tournamentId");
     if (!tournamentId) {
-      return c.json({ error: "Tournament ID is required" }, 400);
+      return c.json(createErrorResponse("Tournament ID is required"), 400);
     }
 
     const participation = await isUserParticipatedInTournament(
@@ -95,15 +103,17 @@ tournamentApi.get("/isParticipated/:tournamentId", async (c) => {
       user.id
     );
 
-    return c.json({
-      message: "Participation status retrieved successfully",
-      participation,
-    });
+    return c.json(
+      createSuccessResponse("Participation status retrieved successfully", {
+        participation,
+      })
+    );
   } catch (error) {
     console.error("Error checking participation:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to check participation";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to check participation", error),
+      500
+    );
   }
 });
 
@@ -115,11 +125,9 @@ tournamentApi.post(
       const user = getUser(c);
       const tournamentId = c.req.param("tournamentId");
       if (!tournamentId) {
-        return c.json({ error: "Tournament ID is required" }, 400);
+        return c.json(createErrorResponse("Tournament ID is required"), 400);
       }
 
-      // The body is now validated by zValidator
-      // Extract all required fields including playerLevel
       const { playerUsername, playerUserId, playerLevel } = await c.req.valid(
         "json"
       );
@@ -132,17 +140,17 @@ tournamentApi.post(
         playerLevel
       );
 
-      return c.json({
-        message: "Successfully participated in the tournament",
-        participate,
-      });
+      return c.json(
+        createSuccessResponse("Successfully participated in the tournament", {
+          participate,
+        })
+      );
     } catch (error: unknown) {
       console.error("Error participating in tournament:", error);
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Failed to participate in tournament";
-      return c.json({ error: errorMessage }, 500);
+      return c.json(
+        createErrorResponse("Failed to participate in tournament", error),
+        500
+      );
     }
   }
 );
@@ -152,22 +160,25 @@ tournamentApi.get("/game/:name", async (c) => {
     const user = getUser(c);
     const gameName = c.req.param("name");
     if (!gameName) {
-      return c.json({ error: "Game name is required" }, 400);
+      return c.json(createErrorResponse("Game name is required"), 400);
     }
 
     const tournaments = await getUserTournamentsByName(user.id, gameName);
-    if (!tournaments) {
-      return c.json({ message: "No tournaments found" }, 404);
+    if (!tournaments || tournaments.length === 0) {
+      return c.json(createErrorResponse("No tournaments found"), 404);
     }
-    return c.json({
-      message: "Tournaments retrieved successfully",
-      tournaments,
-    });
+
+    return c.json(
+      createSuccessResponse("Tournaments retrieved successfully", {
+        tournaments,
+      })
+    );
   } catch (error) {
     console.error("Error retrieving tournaments:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to retrieve tournaments";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve tournaments", error),
+      500
+    );
   }
 });
 
@@ -177,23 +188,25 @@ tournamentApi.get("/:id", async (c) => {
     const user = getUser(c);
     const tournamentId = c.req.param("id");
     if (!tournamentId) {
-      return c.json({ error: "Tournament ID is required" }, 400);
+      return c.json(createErrorResponse("Tournament ID is required"), 400);
     }
 
-    const tournaments = await getTournamentById(user.id, Number(tournamentId));
-    if (!tournaments) {
-      return c.json({ message: "Tournament not found" }, 404);
+    const tournament = await getTournamentById(user.id, Number(tournamentId));
+    if (!tournament) {
+      return c.json(createErrorResponse("Tournament not found"), 404);
     }
 
-    return c.json({
-      message: "Tournament retrieved successfully",
-      data: tournaments,
-    });
+    return c.json(
+      createSuccessResponse("Tournament retrieved successfully", {
+        tournament,
+      })
+    );
   } catch (error) {
     console.error("Error retrieving tournament:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to retrieve tournament";
-    return c.json({ error: errorMessage }, 500);
+    return c.json(
+      createErrorResponse("Failed to retrieve tournament", error),
+      500
+    );
   }
 });
 
