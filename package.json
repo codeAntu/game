@@ -4,7 +4,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "drizzle": "drizzle-kit push"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.0",
