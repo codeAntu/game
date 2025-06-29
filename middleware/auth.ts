@@ -69,11 +69,15 @@ export const isAdmin = async (c: Context, next: Next) => {
 
   const token = authHeader.split(" ")[1];
 
+  console.log(`Admin authentication token: ${token}`);
+
   try {
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET!
     ) as UserTokenPayload;
+
+    console.log(`Decoded admin token: ${JSON.stringify(decoded)}`);
 
     if (!decoded.isAdmin) {
       return c.json({ message: "Admin access required." }, 403);

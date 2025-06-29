@@ -16,6 +16,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import jwt from "jsonwebtoken";
+
 const adminAuth = new Hono().basePath("/auth");
 
 function generateAuthResponse(admin: any) {
