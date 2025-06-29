@@ -49,7 +49,7 @@ tournamentApi.get("/participated", async (c) => {
     if (!tournaments || tournaments.length === 0) {
       return c.json(
         createErrorResponse("No participated tournaments found"),
-        404
+        200
       );
     }
 

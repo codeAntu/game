@@ -15,9 +15,9 @@ import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
-const transactionsRouter = new Hono().basePath("/transactions");
+const transactions = new Hono().basePath("/transactions");
 
-transactionsRouter.use("/*", isAdmin);
+transactions.use("/*", isAdmin);
 
 const statusUpdateValidator = z
   .object({
@@ -37,7 +37,7 @@ const statusUpdateValidator = z
     }
   );
 
-transactionsRouter.get("/deposits", async (c) => {
+transactions.get("/deposits", async (c) => {
   try {
     const admin = getAdmin(c);
 
@@ -69,7 +69,7 @@ transactionsRouter.get("/deposits", async (c) => {
   }
 });
 
-transactionsRouter.get("/withdrawals", async (c) => {
+transactions.get("/withdrawals", async (c) => {
   try {
     const withdrawals = await db
       .select({
@@ -101,7 +101,7 @@ transactionsRouter.get("/withdrawals", async (c) => {
   }
 });
 
-transactionsRouter.post(
+transactions.post(
   "/deposit/:id",
   zValidator("json", statusUpdateValidator),
   async (c) => {
@@ -201,7 +201,7 @@ transactionsRouter.post(
 );
 
 // Update withdrawal status - needs transaction and consistent error responses
-transactionsRouter.post(
+transactions.post(
   "/withdrawal/:id",
   zValidator("json", statusUpdateValidator),
   async (c) => {
@@ -313,7 +313,7 @@ transactionsRouter.post(
   }
 );
 
-transactionsRouter.get("/history", async (c) => {
+transactions.get("/history", async (c) => {
   try {
     const admin = getAdmin(c);
 
@@ -347,7 +347,7 @@ transactionsRouter.get("/history", async (c) => {
 });
 
 // Get history for specific user
-transactionsRouter.get("/history/:userId", async (c) => {
+transactions.get("/history/:userId", async (c) => {
   try {
     const userId = Number(c.req.param("userId"));
 
@@ -372,7 +372,7 @@ transactionsRouter.get("/history/:userId", async (c) => {
 });
 
 // Get all rejected deposits
-transactionsRouter.get("/deposits/rejected", async (c) => {
+transactions.get("/deposits/rejected", async (c) => {
   try {
     const rejectedDeposits = await db
       .select({
@@ -405,7 +405,7 @@ transactionsRouter.get("/deposits/rejected", async (c) => {
 });
 
 // Get all rejected withdrawals
-transactionsRouter.get("/withdrawals/rejected", async (c) => {
+transactions.get("/withdrawals/rejected", async (c) => {
   try {
     const rejectedWithdrawals = await db
       .select({
@@ -437,4 +437,4 @@ transactionsRouter.get("/withdrawals/rejected", async (c) => {
   }
 });
 
-export default transactionsRouter;
+export default transactions;
