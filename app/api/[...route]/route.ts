@@ -10,7 +10,15 @@ export const runtime = "nodejs";
 
 const app = new Hono().basePath("/api");
 
-app.use("*", cors({ origin: "*" }));
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    credentials: true,
+  })
+);
 
 const apiRateLimit = rateLimit({
   windowMs: 60 * 1000,
@@ -33,11 +41,14 @@ app.get("/hello", async (c) => {
   });
 });
 
-app.post("/hello", (c) => {
-  return c.json({
-    message: "Echo from Hono!",
-  });
-});
+// // Explicitly handle preflight OPTIONS requests
+// app.options("*", (c) => {
+//   return new Response("", { status: 204 });
+// });
 
 export const GET = handle(app);
 export const POST = handle(app);
+// export const PUT = handle(app);
+// export const DELETE = handle(app);
+// export const PATCH = handle(app);
+export const OPTIONS = handle(app);
