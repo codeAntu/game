@@ -179,116 +179,109 @@ export async function participateInTournament(
   playerLevel: number
 ) {
   try {
-    const result = await db.transaction(async (tx) => {
-      const tournament = await tx
-        .select()
-        .from(tournamentsTable)
-        .where(
-          and(
-            eq(tournamentsTable.id, tournamentId),
-            eq(tournamentsTable.isEnded, false),
-            gt(tournamentsTable.scheduledAt, new Date())
-          )
-        );
+    // 1. Check tournament exists and is open
+    const tournament = await db
+      .select()
+      .from(tournamentsTable)
+      .where(
+        and(
+          eq(tournamentsTable.id, tournamentId),
+          eq(tournamentsTable.isEnded, false),
+          gt(tournamentsTable.scheduledAt, new Date())
+        )
+      );
+    if (!tournament || tournament.length === 0) {
+      throw new Error(`Tournament does not exist`);
+    }
 
-      if (!tournament || tournament.length === 0) {
-        throw new Error(`Tournament does not exist`);
-      }
+    // 2. Check if user already participated
+    const existingParticipant = await db
+      .select()
+      .from(tournamentParticipantsTable)
+      .where(
+        and(
+          eq(tournamentParticipantsTable.tournamentId, tournamentId),
+          eq(tournamentParticipantsTable.userId, userId)
+        )
+      );
+    if (existingParticipant && existingParticipant.length > 0) {
+      throw new Error(`Already participated in tournament`);
+    }
 
-      const existingParticipant = await tx
-        .select()
-        .from(tournamentParticipantsTable)
-        .where(
-          and(
-            eq(tournamentParticipantsTable.tournamentId, tournamentId),
-            eq(tournamentParticipantsTable.userId, userId)
-          )
-        );
+    // 3. Check max participants
+    const maxParticipants = tournament[0].maxParticipants;
+    const currentParticipants = await db
+      .select()
+      .from(tournamentParticipantsTable)
+      .where(eq(tournamentParticipantsTable.tournamentId, tournamentId));
+    const currentParticipantsCount = currentParticipants.length;
+    if (currentParticipantsCount >= maxParticipants) {
+      throw new Error(`Tournament has reached its maximum participants`);
+    }
 
-      if (existingParticipant && existingParticipant.length > 0) {
-        throw new Error(`Already participated in tournament`);
-      }
+    // 4. Check user exists and balance
+    const user = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+    if (!user || user.length === 0) {
+      throw new Error(`User does not exist`);
+    }
+    const userBalance = user[0].balance;
+    const tournamentEntryFee = tournament[0].entryFee;
+    if (userBalance < tournamentEntryFee) {
+      throw new Error(
+        "Don't have enough balance to participate in this tournament"
+      );
+    }
+    if (playerLevel < 30) {
+      throw new Error("Player level must be at least 30");
+    }
 
-      const maxParticipants = tournament[0].maxParticipants;
+    // 5. Deduct balance
+    await db
+      .update(usersTable)
+      .set({ balance: userBalance - tournamentEntryFee })
+      .where(eq(usersTable.id, userId));
 
-      const currentParticipants = await tx
-        .select()
-        .from(tournamentParticipantsTable)
-        .where(eq(tournamentParticipantsTable.tournamentId, tournamentId));
-
-      const currentParticipantsCount = currentParticipants.length;
-      if (currentParticipantsCount >= maxParticipants) {
-        throw new Error(`Tournament has reached its maximum participants`);
-      }
-
-      const user = await tx
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.id, userId));
-
-      if (!user || user.length === 0) {
-        throw new Error(`User does not exist`);
-      }
-
-      const userBalance = user[0].balance;
-      const tournamentEntryFee = tournament[0].entryFee;
-
-      if (userBalance < tournamentEntryFee) {
-        throw new Error(
-          "Don't have enough balance to participate in this tournament"
-        );
-      }
-
-      if (playerLevel < 30) {
-        throw new Error("Player level must be at least 30");
-      }
-
-      await tx
-        .update(usersTable)
-        .set({
-          balance: userBalance - tournamentEntryFee,
-        })
-        .where(eq(usersTable.id, userId));
-
-      await tx.insert(historyTable).values({
-        userId,
-        transactionType: "tournament_entry",
-        amount: tournamentEntryFee,
-        balanceEffect: "decrease",
-        status: "completed",
-        message: `Entry fee paid for tournament: ${tournament[0].name}`,
-        referenceId: tournamentId,
-      });
-
-      const participantInsert = await tx
-        .insert(tournamentParticipantsTable)
-        .values({
-          tournamentId,
-          userId,
-          playerUsername,
-          playerUserId,
-          playerLevel,
-        });
-
-      await tx
-        .update(tournamentsTable)
-        .set({
-          currentParticipants: currentParticipantsCount + 1,
-        })
-        .where(eq(tournamentsTable.id, tournamentId));
-
-      const updatedTournament = await tx
-        .select()
-        .from(tournamentsTable)
-        .where(eq(tournamentsTable.id, tournamentId));
-
-      return {
-        participantInsert,
-        tournament: updatedTournament[0],
-      };
+    // 6. Insert history
+    await db.insert(historyTable).values({
+      userId,
+      transactionType: "tournament_entry",
+      amount: tournamentEntryFee,
+      balanceEffect: "decrease",
+      status: "completed",
+      message: `Entry fee paid for tournament: ${tournament[0].name}`,
+      referenceId: tournamentId,
     });
 
-    return result;
+    // 7. Insert participant
+    const participantInsert = await db
+      .insert(tournamentParticipantsTable)
+      .values({
+        tournamentId,
+        userId,
+        playerUsername,
+        playerUserId,
+        playerLevel,
+      });
+
+    // 8. Update tournament participant count
+    await db
+      .update(tournamentsTable)
+      .set({ currentParticipants: currentParticipantsCount + 1 })
+      .where(eq(tournamentsTable.id, tournamentId));
+
+    // 9. Get updated tournament
+    const updatedTournament = await db
+      .select()
+      .from(tournamentsTable)
+      .where(eq(tournamentsTable.id, tournamentId));
+
+    return {
+      participantInsert,
+      tournament: updatedTournament[0],
+    };
   } catch (error) {
     console.error("Error participating in tournament:", error);
     throw error;
@@ -376,7 +369,7 @@ export async function getUserWinnings(userId: number) {
           eq(tournamentsTable.isEnded, true)
         )
       )
-      .orderBy(desc(winningsTable.createdAt)); 
+      .orderBy(desc(winningsTable.createdAt));
 
     return winnings.map((item) => ({
       tournament: sanitizeTournamentData(item.tournament, true, true),

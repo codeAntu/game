@@ -110,76 +110,72 @@ transactionsRouter.post(
       const id = Number(c.req.param("id"));
       const { status, reason } = await c.req.json();
 
-      const result = await db.transaction(async (tx) => {
-        const deposit = await tx
-          .select()
-          .from(depositTable)
-          .where(eq(depositTable.id, id))
-          .limit(1);
+      // 1. Get deposit
+      const deposit = await db
+        .select()
+        .from(depositTable)
+        .where(eq(depositTable.id, id))
+        .limit(1);
+      if (!deposit || deposit.length === 0) {
+        return c.json(createErrorResponse("Deposit not found"), 404);
+      }
+      const userDeposit = deposit[0];
 
-        if (!deposit || deposit.length === 0) {
-          throw new Error("Deposit not found");
-        }
+      // 2. Update deposit status
+      await db
+        .update(depositTable)
+        .set({ status })
+        .where(eq(depositTable.id, id));
 
-        const userDeposit = deposit[0];
+      // 3. Insert into history
+      await db.insert(historyTable).values({
+        userId: userDeposit.userId,
+        transactionType: status === "rejected" ? "deposit_rejected" : "deposit",
+        amount: userDeposit.amount,
+        balanceEffect: status === "approved" ? "increase" : "none",
+        status,
+        message:
+          status === "rejected"
+            ? `Deposit ${status} by admin - Reason: ${reason}`
+            : `Deposit ${status} by admin - ID: ${id}`,
+        referenceId: id,
+      });
 
-        await tx
-          .update(depositTable)
-          .set({ status })
-          .where(eq(depositTable.id, id));
-
-        await tx.insert(historyTable).values({
+      // 4. If rejected, insert into rejectedDepositTable
+      if (status === "rejected") {
+        await db.insert(rejectedDepositTable).values({
           userId: userDeposit.userId,
-          transactionType:
-            status === "rejected" ? "deposit_rejected" : "deposit",
           amount: userDeposit.amount,
-          balanceEffect: status === "approved" ? "increase" : "none",
-          status,
-          message:
-            status === "rejected"
-              ? `Deposit ${status} by admin - Reason: ${reason}`
-              : `Deposit ${status} by admin - ID: ${id}`,
-          referenceId: id,
+          upiId: userDeposit.upiId,
+          status: "rejected",
+          reason: reason || "No reason provided",
         });
+      }
 
-        if (status === "rejected") {
-          await tx.insert(rejectedDepositTable).values({
+      // 5. If approved, update user balance and add balance_adjustment history
+      if (status === "approved") {
+        const user = await db
+          .select({ balance: usersTable.balance })
+          .from(usersTable)
+          .where(eq(usersTable.id, userDeposit.userId))
+          .limit(1);
+        if (user && user.length > 0) {
+          const newBalance = user[0].balance + userDeposit.amount;
+          await db
+            .update(usersTable)
+            .set({ balance: newBalance })
+            .where(eq(usersTable.id, userDeposit.userId));
+          await db.insert(historyTable).values({
             userId: userDeposit.userId,
+            transactionType: "balance_adjustment",
             amount: userDeposit.amount,
-            upiId: userDeposit.upiId,
-            status: "rejected",
-            reason: reason || "No reason provided",
+            balanceEffect: "increase",
+            status: "completed",
+            message: `Balance updated: +${userDeposit.amount} from deposit`,
+            referenceId: id,
           });
         }
-
-        if (status === "approved") {
-          const user = await tx
-            .select({ balance: usersTable.balance })
-            .from(usersTable)
-            .where(eq(usersTable.id, userDeposit.userId))
-            .limit(1);
-
-          if (user && user.length > 0) {
-            const newBalance = user[0].balance + userDeposit.amount;
-            await tx
-              .update(usersTable)
-              .set({ balance: newBalance })
-              .where(eq(usersTable.id, userDeposit.userId));
-
-            await tx.insert(historyTable).values({
-              userId: userDeposit.userId,
-              transactionType: "balance_adjustment",
-              amount: userDeposit.amount,
-              balanceEffect: "increase",
-              status: "completed",
-              message: `Balance updated: +${userDeposit.amount} from deposit`,
-              referenceId: id,
-            });
-          }
-        }
-
-        return { userDeposit, status };
-      });
+      }
 
       return c.json(
         createSuccessResponse(
@@ -214,80 +210,79 @@ transactionsRouter.post(
       const id = Number(c.req.param("id"));
       const { status, reason } = await c.req.json();
 
-      const result = await db.transaction(async (tx) => {
-        const withdrawal = await tx
-          .select()
-          .from(withdrawTable)
-          .where(eq(withdrawTable.id, id))
-          .limit(1);
+      // 1. Get withdrawal
+      const withdrawal = await db
+        .select()
+        .from(withdrawTable)
+        .where(eq(withdrawTable.id, id))
+        .limit(1);
+      if (!withdrawal || withdrawal.length === 0) {
+        return c.json(createErrorResponse("Withdrawal not found"), 404);
+      }
+      const userWithdrawal = withdrawal[0];
 
-        if (!withdrawal || withdrawal.length === 0) {
-          throw new Error("Withdrawal not found");
-        }
+      // 2. Update withdrawal status
+      await db
+        .update(withdrawTable)
+        .set({ status })
+        .where(eq(withdrawTable.id, id));
 
-        const userWithdrawal = withdrawal[0];
+      // 3. Insert into history
+      await db.insert(historyTable).values({
+        userId: userWithdrawal.userId,
+        transactionType:
+          status === "rejected" ? "withdrawal_rejected" : "withdrawal",
+        amount: userWithdrawal.amount,
+        balanceEffect: status === "approved" ? "decrease" : "none",
+        status,
+        message:
+          status === "rejected"
+            ? `Withdrawal ${status} by admin - Reason: ${reason}`
+            : `Withdrawal ${status} by admin - ID: ${id}`,
+        referenceId: id,
+      });
 
-        await tx
-          .update(withdrawTable)
-          .set({ status })
-          .where(eq(withdrawTable.id, id));
-
-        await tx.insert(historyTable).values({
+      // 4. If rejected, insert into rejectedWithdrawTable
+      if (status === "rejected") {
+        await db.insert(rejectedWithdrawTable).values({
           userId: userWithdrawal.userId,
-          transactionType:
-            status === "rejected" ? "withdrawal_rejected" : "withdrawal",
           amount: userWithdrawal.amount,
-          balanceEffect: status === "approved" ? "decrease" : "none",
-          status,
-          message:
-            status === "rejected"
-              ? `Withdrawal ${status} by admin - Reason: ${reason}`
-              : `Withdrawal ${status} by admin - ID: ${id}`,
-          referenceId: id,
+          upiId: userWithdrawal.upiId,
+          status: "rejected",
+          reason: reason || "No reason provided",
         });
+      }
 
-        if (status === "rejected") {
-          await tx.insert(rejectedWithdrawTable).values({
+      // 5. If approved, update user balance and add balance_adjustment history
+      if (status === "approved") {
+        const user = await db
+          .select({ balance: usersTable.balance })
+          .from(usersTable)
+          .where(eq(usersTable.id, userWithdrawal.userId))
+          .limit(1);
+        if (user && user.length > 0) {
+          const newBalance = user[0].balance - userWithdrawal.amount;
+          if (newBalance < 0) {
+            return c.json(
+              createErrorResponse("Insufficient user balance"),
+              400
+            );
+          }
+          await db
+            .update(usersTable)
+            .set({ balance: newBalance })
+            .where(eq(usersTable.id, userWithdrawal.userId));
+          await db.insert(historyTable).values({
             userId: userWithdrawal.userId,
+            transactionType: "balance_adjustment",
             amount: userWithdrawal.amount,
-            upiId: userWithdrawal.upiId,
-            status: "rejected",
-            reason: reason || "No reason provided",
+            balanceEffect: "decrease",
+            status: "completed",
+            message: `Balance updated: -${userWithdrawal.amount} from withdrawal`,
+            referenceId: id,
           });
         }
-
-        if (status === "approved") {
-          const user = await tx
-            .select({ balance: usersTable.balance })
-            .from(usersTable)
-            .where(eq(usersTable.id, userWithdrawal.userId))
-            .limit(1);
-
-          if (user && user.length > 0) {
-            const newBalance = user[0].balance - userWithdrawal.amount;
-            if (newBalance < 0) {
-              throw new Error("Insufficient user balance");
-            }
-
-            await tx
-              .update(usersTable)
-              .set({ balance: newBalance })
-              .where(eq(usersTable.id, userWithdrawal.userId));
-
-            await tx.insert(historyTable).values({
-              userId: userWithdrawal.userId,
-              transactionType: "balance_adjustment",
-              amount: userWithdrawal.amount,
-              balanceEffect: "decrease",
-              status: "completed",
-              message: `Balance updated: -${userWithdrawal.amount} from withdrawal`,
-              referenceId: id,
-            });
-          }
-        }
-
-        return { userWithdrawal, status };
-      });
+      }
 
       return c.json(
         createSuccessResponse(
