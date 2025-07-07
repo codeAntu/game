@@ -25,7 +25,7 @@ const apiRateLimit = rateLimit({
   maxRequests: 100,
   keyGenerator: (c) => {
     const clientIP = c.req.header("x-forwarded-for") || "unknown";
-    return `rate_limit:${clientIP}`;
+    return `battleZone:rate_limit:${clientIP}`;
   },
 });
 
